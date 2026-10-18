@@ -2,12 +2,21 @@ import logging
 import sqlite3
 
 import boto3
-from flask import Flask, redirect, render_template_string, request
+from botocore.exceptions import BotoCoreError, ClientError
+from flask import Flask, redirect, render_template, request
 from werkzeug.utils import secure_filename
 
 BUCKET = "clouddesk-attachments-moiz-001"
 DB = "/data/tickets.db"
 STATUSES = ["Open", "In Progress", "Resolved"]
+
+MESSAGES = {
+    "created": ("success", "Ticket created successfully."),
+    "uploaded": ("success", "Ticket created. Your screenshot was uploaded and will be checked automatically."),
+    "updated": ("success", "Ticket status updated."),
+    "toolarge": ("error", "That file is too large. The limit is 6 MB."),
+    "uploadfail": ("error", "The ticket was saved, but the screenshot could not be uploaded."),
+}
 
 logging.basicConfig(filename="/data/app.log", level=logging.INFO,
                     format="%(asctime)s %(message)s")
@@ -34,54 +43,17 @@ def init():
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
 
 
-PAGE = """
-<!doctype html>
-<title>CloudDesk</title>
-<style>
-  body{font-family:Arial,sans-serif;max-width:900px;margin:30px auto;padding:0 16px}
-  input,textarea,select{width:100%;padding:8px;margin:4px 0 12px;box-sizing:border-box}
-  button{padding:8px 16px;cursor:pointer}
-  table{width:100%;border-collapse:collapse;margin-top:20px}
-  th,td{border:1px solid #ccc;padding:8px;text-align:left}
-  th{background:#f2f2f2}
-  form.inline{display:flex;gap:6px}
-  form.inline select{margin:0}
-</style>
-<h1>CloudDesk: IT Helpdesk</h1>
-<h3>New ticket</h3>
-<form method="post" action="/tickets" enctype="multipart/form-data">
-  <label>Title</label><input name="title" required>
-  <label>Description</label><textarea name="description" rows="3"></textarea>
-  <label>Screenshot (optional)</label><input type="file" name="screenshot">
-  <button type="submit">Create ticket</button>
-</form>
-<table>
-  <tr><th>ID</th><th>Title</th><th>Status</th><th>Attachment</th><th>Created</th><th>Update</th></tr>
-  {% for t in tickets %}
-  <tr>
-    <td>{{ t.id }}</td><td>{{ t.title }}</td><td>{{ t.status }}</td>
-    <td>{{ t.attachment or "" }}</td><td>{{ t.created_at }}</td>
-    <td>
-      <form class="inline" method="post" action="/tickets/{{ t.id }}/status">
-        <select name="status">
-          {% for s in statuses %}
-          <option {% if s == t.status %}selected{% endif %}>{{ s }}</option>
-          {% endfor %}
-        </select>
-        <button>Save</button>
-      </form>
-    </td>
-  </tr>
-  {% endfor %}
-</table>
-"""
-
-
 @app.route("/")
 def index():
     with db() as c:
         tickets = c.execute("SELECT * FROM tickets ORDER BY id DESC").fetchall()
-    return render_template_string(PAGE, tickets=tickets, statuses=STATUSES)
+        counts = {s: 0 for s in STATUSES}
+        for row in c.execute("SELECT status, COUNT(*) AS n FROM tickets GROUP BY status"):
+            if row["status"] in counts:
+                counts[row["status"]] = row["n"]
+    message = MESSAGES.get(request.args.get("m"))
+    return render_template("index.html", tickets=tickets, statuses=STATUSES,
+                           counts=counts, total=len(tickets), message=message)
 
 
 @app.route("/tickets", methods=["POST"])
@@ -94,15 +66,21 @@ def create_ticket():
         ticket_id = cur.lastrowid
 
     file = request.files.get("screenshot")
-    if file and file.filename:
-        key = f"ticket-{ticket_id}/{secure_filename(file.filename)}"
-        s3.upload_fileobj(file, BUCKET, key)
+    filename = secure_filename(file.filename) if file and file.filename else ""
+    if filename:
+        key = f"ticket-{ticket_id}/{filename}"
+        try:
+            s3.upload_fileobj(file, BUCKET, key)
+        except (BotoCoreError, ClientError):
+            logging.exception("Upload failed for ticket %s", ticket_id)
+            return redirect("/?m=uploadfail")
         with db() as c:
             c.execute("UPDATE tickets SET attachment = ? WHERE id = ?", (key, ticket_id))
         logging.info("Ticket %s created with attachment %s", ticket_id, key)
-    else:
-        logging.info("Ticket %s created", ticket_id)
-    return redirect("/")
+        return redirect("/?m=uploaded")
+
+    logging.info("Ticket %s created", ticket_id)
+    return redirect("/?m=created")
 
 
 @app.route("/tickets/<int:ticket_id>/status", methods=["POST"])
@@ -112,7 +90,12 @@ def update_status(ticket_id):
         with db() as c:
             c.execute("UPDATE tickets SET status = ? WHERE id = ?", (status, ticket_id))
         logging.info("Ticket %s set to %s", ticket_id, status)
-    return redirect("/")
+    return redirect("/?m=updated")
+
+
+@app.errorhandler(413)
+def too_large(e):
+    return redirect("/?m=toolarge")
 
 
 init()

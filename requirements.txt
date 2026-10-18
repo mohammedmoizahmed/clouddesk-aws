@@ -1,3 +1,5 @@
 flask
 boto3
 gunicorn
+pymysql
+cryptography

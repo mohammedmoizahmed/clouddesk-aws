@@ -25,7 +25,7 @@ The application is deliberately simple. The focus of the project is the infrastr
 ## Architecture
 
 ![CloudDesk architecture diagram](docs/images/architecture.png)
-*Numbers 1 to 8 trace a request through the system and are explained in the flow key at the bottom of the diagram. The lower strip shows how servers are built and replaced: repository, Docker image, AMI, launch template, Auto Scaling Group.*
+*A visitor reaches the load balancer, which sends traffic to web servers in two zones. Tickets go to the database, screenshots go to S3 and are checked by Lambda, and an alarm adds a server when CPU is high.*
 
 In short: visitors reach an Application Load Balancer, which forwards to web servers in an Auto Scaling Group across two Availability Zones. The servers keep tickets in RDS (private subnets), upload screenshots to S3, and read their settings from Parameter Store. Each upload triggers a Lambda function that validates the file and records the result in DynamoDB. A CloudWatch alarm on average CPU lets the group add a third server under load.
 

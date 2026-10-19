@@ -1,0 +1,9 @@
+# secrets and keys: never commit these
+.env
+*.env
+*.pem
+
+# Python and OS clutter
+__pycache__/
+*.pyc
+.DS_Store

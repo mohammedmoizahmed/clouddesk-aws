@@ -16,7 +16,7 @@ from flask import (Flask, abort, flash, g, redirect, render_template, request,
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "2"
+APP_VERSION = "3"
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 BUCKET = os.environ.get("S3_BUCKET", "clouddesk-attachments-moiz-001")
 ATTACH_TABLE = os.environ.get("ATTACH_TABLE", "clouddesk-attachments")
@@ -25,6 +25,11 @@ STATES = ["New", "In Progress", "On Hold", "Resolved", "Closed"]
 PRIORITIES = ["Critical", "High", "Moderate", "Low"]
 CATEGORIES = ["Hardware", "Software", "Network", "Email", "Access", "Printer", "Other"]
 PER_PAGE = 15
+
+# File types the Lambda checker accepts. The type is set from the extension, never from what the
+# uploader claims, so files are shown inline as images/PDF/text instead of being downloaded.
+MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
+        ".pdf": "application/pdf", ".txt": "text/plain"}
 
 MESSAGES = {
     "toolarge": "That file is too large. The limit is 6 MB.",
@@ -226,8 +231,10 @@ def clean_filename(original):
 
 
 def attachment_info(key):
-    """What the Lambda checker decided about a file, plus a short-lived download link if it passed."""
-    info = {"name": key.split("/", 1)[-1], "status": "unknown", "reason": "", "url": None}
+    """What the Lambda checker decided about a file, plus a short-lived viewing link if it passed."""
+    mime = MIME.get(os.path.splitext(key)[1].lower())
+    info = {"name": key.split("/", 1)[-1], "status": "unknown", "reason": "", "url": None,
+            "kind": ("image" if mime and mime.startswith("image/") else "file") if mime else None}
     try:
         item = ddb.get_item(Key={"file_key": key}).get("Item")
     except (BotoCoreError, ClientError):
@@ -237,10 +244,13 @@ def attachment_info(key):
         return info
     info["status"] = item.get("status", "unknown")
     info["reason"] = item.get("reason", "")
-    if info["status"] == "accepted":
+    if info["status"] == "accepted" and mime:
         try:
             info["url"] = s3.generate_presigned_url(
-                "get_object", Params={"Bucket": BUCKET, "Key": key}, ExpiresIn=300)
+                "get_object",
+                Params={"Bucket": BUCKET, "Key": key,
+                        "ResponseContentType": mime, "ResponseContentDisposition": "inline"},
+                ExpiresIn=900)
         except (BotoCoreError, ClientError):
             pass
     return info
@@ -504,8 +514,10 @@ def incident_new():
         upload = request.files.get("screenshot")
         if upload and upload.filename:
             key = f"ticket-{tid}/{clean_filename(upload.filename)}"
+            content_type = MIME.get(os.path.splitext(key)[1].lower())
             try:
-                s3.upload_fileobj(upload, BUCKET, key)
+                s3.upload_fileobj(upload, BUCKET, key,
+                                  ExtraArgs={"ContentType": content_type} if content_type else None)
             except (BotoCoreError, ClientError):
                 log.exception("Upload failed for ticket %s", tid)
                 flash("The incident was created, but the attachment could not be uploaded.", "error")

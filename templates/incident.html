@@ -40,20 +40,31 @@
     {% if att %}
     <section class="card">
       <div class="card-h">Attachment</div>
-      <div class="card-b attach">
-        {{ icon('paperclip') }}
-        <strong>{{ att.name }}</strong>
-        {% if att.status == 'accepted' %}
-          <span class="badge st-resolved">Accepted</span>
-          {% if att.url %}<a href="{{ att.url }}" target="_blank" rel="noopener">Open file</a>{% endif %}
-        {% elif att.status == 'rejected' %}
-          <span class="badge pr-critical">Rejected</span>
-          <span class="muted">{{ att.reason }}</span>
-        {% elif att.status == 'checking' %}
-          <span class="badge st-on-hold">Checking</span>
-          <span class="muted">The file is being checked. Reload in a moment.</span>
-        {% else %}
-          <span class="muted">Check result not available.</span>
+      <div class="card-b">
+        <div class="attach">
+          {{ icon('paperclip') }}
+          <strong>{{ att.name }}</strong>
+          {% if att.status == 'accepted' %}
+            <span class="badge st-resolved">Accepted</span>
+            {% if att.url and att.kind == 'image' %}
+              <button type="button" class="btn" data-viewer="{{ att.url }}" data-name="{{ att.name }}">View image</button>
+            {% elif att.url %}
+              <a class="btn" href="{{ att.url }}" target="_blank" rel="noopener">Open file</a>
+            {% endif %}
+          {% elif att.status == 'rejected' %}
+            <span class="badge pr-critical">Rejected</span>
+            <span class="muted">{{ att.reason }}</span>
+          {% elif att.status == 'checking' %}
+            <span class="badge st-on-hold">Checking</span>
+            <span class="muted">The file is being checked. Reload in a moment.</span>
+          {% else %}
+            <span class="muted">Check result not available.</span>
+          {% endif %}
+        </div>
+        {% if att.status == 'accepted' and att.url and att.kind == 'image' %}
+        <button type="button" class="thumb" data-viewer="{{ att.url }}" data-name="{{ att.name }}" aria-label="View image">
+          <img src="{{ att.url }}" alt="{{ att.name }}" loading="lazy">
+        </button>
         {% endif %}
       </div>
     </section>
@@ -123,4 +134,34 @@
     </section>
   </aside>
 </div>
+
+<dialog id="viewer" class="viewer" aria-label="Attachment preview">
+  <div class="viewer-bar">
+    <strong id="viewer-name"></strong>
+    <button type="button" class="viewer-x" id="viewer-close" aria-label="Close">&times;</button>
+  </div>
+  <div class="viewer-body"><img id="viewer-img" alt=""></div>
+  <div class="viewer-foot"><button type="button" class="btn" id="viewer-back">Back to incident</button></div>
+</dialog>
+<script>
+  (function () {
+    var dlg = document.getElementById('viewer');
+    if (!dlg || !dlg.showModal) { return; }
+    var img = document.getElementById('viewer-img');
+    var name = document.getElementById('viewer-name');
+    function close() { if (dlg.open) { dlg.close(); } }
+    document.querySelectorAll('[data-viewer]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        img.src = el.getAttribute('data-viewer');
+        img.alt = el.getAttribute('data-name');
+        name.textContent = el.getAttribute('data-name');
+        dlg.showModal();
+      });
+    });
+    document.getElementById('viewer-close').addEventListener('click', close);
+    document.getElementById('viewer-back').addEventListener('click', close);
+    dlg.addEventListener('click', function (e) { if (e.target === dlg) { close(); } });
+    dlg.addEventListener('close', function () { img.removeAttribute('src'); });
+  })();
+</script>
 {% endblock %}

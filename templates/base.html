@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#293e40">
+  <title>{% block title %}CloudDesk{% endblock %} | CloudDesk</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=APP_VERSION) }}">
+</head>
+<body>
+{% from "_ui.html" import icon, flashes %}
+{% include "_sprite.html" %}
+{% if g.user %}
+{% set ep = request.endpoint %}
+{% set sc = request.args.get('scope', 'mine') %}
+{% set agent = g.user.role == 'agent' %}
+<input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Toggle navigation">
+
+<header class="topbar">
+  <label for="nav-toggle" class="menu-btn" aria-label="Open menu">{{ icon('menu') }}</label>
+  <a class="brand" href="{{ url_for('home') }}"><span class="brand-mark">CD</span><span class="brand-name">CloudDesk</span></a>
+  <form class="search" action="{{ url_for('incidents') }}" method="get" role="search">
+    <input type="hidden" name="scope" value="{{ 'all' if agent else 'mine' }}">
+    {{ icon('search') }}
+    <input type="search" name="q" placeholder="Search incidents by number or description" aria-label="Search incidents">
+  </form>
+  <details class="usermenu">
+    <summary>
+      <span class="avatar">{{ g.user.full_name|initials }}</span>
+      <span class="uname">{{ g.user.full_name }}</span>
+      {{ icon('chevron') }}
+    </summary>
+    <div class="menu">
+      <div class="menu-head"><strong>{{ g.user.full_name }}</strong><span>{{ g.user.email }}</span><span class="tag">{{ 'Agent' if agent else 'Requester' }}</span></div>
+      <a href="{{ url_for('profile') }}">{{ icon('user') }} Profile</a>
+      <form method="post" action="{{ url_for('logout') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit">{{ icon('logout') }} Sign out</button>
+      </form>
+    </div>
+  </details>
+</header>
+
+<nav class="sidenav" aria-label="Main">
+  <div class="nav-title">Self service</div>
+  <a href="{{ url_for('home') }}" class="{{ 'active' if ep == 'home' }}">{{ icon('home') }} Home</a>
+  <a href="{{ url_for('incident_new') }}" class="{{ 'active' if ep == 'incident_new' }}">{{ icon('plus') }} Create incident</a>
+  <a href="{{ url_for('incidents', scope='mine') }}" class="{{ 'active' if ep == 'incidents' and sc == 'mine' }}">{{ icon('list') }} My incidents</a>
+  {% if agent %}
+  <div class="nav-title">Service desk</div>
+  <a href="{{ url_for('incidents', scope='assigned') }}" class="{{ 'active' if ep == 'incidents' and sc == 'assigned' }}">{{ icon('usercheck') }} Assigned to me</a>
+  <a href="{{ url_for('incidents', scope='all') }}" class="{{ 'active' if ep == 'incidents' and sc == 'all' }}">{{ icon('layers') }} All incidents</a>
+  {% endif %}
+  <div class="nav-title">Account</div>
+  <a href="{{ url_for('profile') }}" class="{{ 'active' if ep == 'profile' }}">{{ icon('user') }} Profile</a>
+</nav>
+<label for="nav-toggle" class="scrim"></label>
+{% endif %}
+
+<main class="{{ 'main' if g.user else 'auth-wrap' }}">
+  {% if g.user %}{{ flashes() }}{% endif %}
+  {% block content %}{% endblock %}
+</main>
+
+<script>
+  document.addEventListener('click', function (e) {
+    var m = document.querySelector('.usermenu');
+    if (m && !m.contains(e.target)) { m.removeAttribute('open'); }
+  });
+</script>
+</body>
+</html>

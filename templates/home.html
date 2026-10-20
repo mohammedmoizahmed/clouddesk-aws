@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "_ui.html" import icon, incident_table %}
+{% block title %}Home{% endblock %}
+{% block content %}
+{% set agent = g.user.role == 'agent' %}
+<div class="page-h">
+  <div>
+    <h1>Welcome, {{ g.user.full_name.split(' ')[0] }}</h1>
+    <p class="muted">{{ 'Service desk overview' if agent else 'Your incidents at a glance' }}</p>
+  </div>
+  <a class="btn btn-primary" href="{{ url_for('incident_new') }}">{{ icon('plus') }} Create incident</a>
+</div>
+
+<section class="kpis">
+  <a class="kpi" href="{{ url_for('incidents', scope=default_scope) }}">
+    <div class="kpi-n">{{ total }}</div><div class="kpi-l">Total incidents</div>
+  </a>
+  {% for s in STATES %}
+  <a class="kpi kpi-{{ s|slug }}" href="{{ url_for('incidents', scope=default_scope, state=s) }}">
+    <div class="kpi-n">{{ by_state[s] }}</div><div class="kpi-l">{{ s }}</div>
+  </a>
+  {% endfor %}
+</section>
+
+<div class="grid-home">
+  <section class="card">
+    <div class="card-h">Open incidents by priority</div>
+    <div class="card-b">
+      {% for p in PRIORITIES %}
+      <div class="bar-row">
+        <span class="bar-label">{{ p }}</span>
+        <div class="bar-track"><div class="bar-fill pr-bg-{{ p|slug }}" style="width: {{ (by_priority[p] / top * 100)|round|int }}%"></div></div>
+        <span class="bar-n">{{ by_priority[p] }}</span>
+      </div>
+      {% endfor %}
+      <p class="hint">Resolved and closed incidents are not counted.</p>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-h">
+      <span>Recent incidents</span>
+      <a href="{{ url_for('incidents', scope=default_scope) }}">View all</a>
+    </div>
+    {% if recent %}
+      {{ incident_table(recent, agent, compact=True) }}
+    {% else %}
+      <div class="empty">
+        {{ icon('inbox') }}
+        <p>No incidents yet.</p>
+        <a class="btn btn-primary" href="{{ url_for('incident_new') }}">Create your first incident</a>
+      </div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

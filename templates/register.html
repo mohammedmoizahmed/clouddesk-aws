@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "_ui.html" import flashes, csrf %}
+{% block title %}Create account{% endblock %}
+{% block content %}
+<div class="auth-card">
+  <div class="auth-brand"><span class="brand-mark">CD</span><span>CloudDesk</span></div>
+  <h1>Create your account</h1>
+  <p class="muted">You will use your email and password to sign in.</p>
+  {{ flashes() }}
+  <form method="post">
+    {{ csrf() }}
+    <label for="full_name">Full name</label>
+    <input id="full_name" name="full_name" type="text" autocomplete="name" value="{{ form.full_name }}" maxlength="120" required autofocus>
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="email" value="{{ form.email }}" maxlength="190" required>
+    <label for="phone">Phone number</label>
+    <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" value="{{ form.phone }}" placeholder="+966 5X XXX XXXX" maxlength="30" required>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
+    <div class="hint">At least 8 characters.</div>
+    <label for="confirm">Confirm password</label>
+    <input id="confirm" name="confirm" type="password" autocomplete="new-password" minlength="8" required>
+    <button class="btn btn-primary btn-block" type="submit">Create account</button>
+  </form>
+  <p class="auth-alt">Already registered? <a href="{{ url_for('login') }}">Sign in</a></p>
+</div>
+{% endblock %}

@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% from "_ui.html" import icon, state, prio, csrf %}
+{% block title %}{{ t.number }}{% endblock %}
+{% block content %}
+{% set agent = g.user.role == 'agent' %}
+<div class="crumbs"><a href="{{ url_for('incidents', scope='all' if agent else 'mine') }}">Incidents</a> <span>/</span> {{ t.number }}</div>
+<div class="page-h">
+  <div>
+    <h1>{{ t.number }}</h1>
+    <p class="lead">{{ t.title }}</p>
+  </div>
+  <div class="head-badges">{{ state(t.status) }} {{ prio(t.priority) }}</div>
+</div>
+
+<div class="detail">
+  <div class="col-main">
+    <section class="card">
+      <div class="card-h">Incident details</div>
+      <div class="card-b">
+        <dl class="fields">
+          <div><dt>Caller</dt><dd>{{ t.requester or 'Unknown' }}</dd></div>
+          <div><dt>Category</dt><dd>{{ t.category }}</dd></div>
+          {% if agent %}
+          <div><dt>Email</dt><dd>{{ t.requester_email or '-' }}</dd></div>
+          <div><dt>Phone</dt><dd>{{ t.requester_phone or '-' }}</dd></div>
+          {% endif %}
+          <div><dt>Assigned to</dt><dd>{{ t.assignee or 'Unassigned' }}</dd></div>
+          <div><dt>Priority</dt><dd>{{ prio(t.priority) }}</dd></div>
+          <div><dt>Opened</dt><dd>{{ fmt(t.created_at) }}</dd></div>
+          <div><dt>Updated</dt><dd>{{ fmt(t.updated_at) }}</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h">Description</div>
+      <div class="card-b prose">{{ t.description or 'No description was provided.' }}</div>
+    </section>
+
+    {% if att %}
+    <section class="card">
+      <div class="card-h">Attachment</div>
+      <div class="card-b attach">
+        {{ icon('paperclip') }}
+        <strong>{{ att.name }}</strong>
+        {% if att.status == 'accepted' %}
+          <span class="badge st-resolved">Accepted</span>
+          {% if att.url %}<a href="{{ att.url }}" target="_blank" rel="noopener">Open file</a>{% endif %}
+        {% elif att.status == 'rejected' %}
+          <span class="badge pr-critical">Rejected</span>
+          <span class="muted">{{ att.reason }}</span>
+        {% elif att.status == 'checking' %}
+          <span class="badge st-on-hold">Checking</span>
+          <span class="muted">The file is being checked. Reload in a moment.</span>
+        {% else %}
+          <span class="muted">Check result not available.</span>
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
+  </div>
+
+  <aside class="col-side">
+    {% if agent %}
+    <section class="card">
+      <div class="card-h">Work on this incident</div>
+      <form method="post" action="{{ url_for('incident_update', tid=t.id) }}" class="card-b stack">
+        {{ csrf() }}
+        <div>
+          <label for="state">State</label>
+          <select id="state" name="state">
+            {% for s in STATES %}<option {{ 'selected' if s == t.status }}>{{ s }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="up-priority">Priority</label>
+          <select id="up-priority" name="priority">
+            {% for p in PRIORITIES %}<option {{ 'selected' if p == t.priority }}>{{ p }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="assignee">Assigned to</label>
+          <select id="assignee" name="assignee">
+            <option value="">Unassigned</option>
+            {% for a in agents %}<option value="{{ a.id }}" {{ 'selected' if a.id == t.assignee_id }}>{{ a.full_name }}</option>{% endfor %}
+          </select>
+        </div>
+        <button class="btn btn-primary" type="submit">Save changes</button>
+      </form>
+    </section>
+    {% endif %}
+
+    <section class="card">
+      <div class="card-h">Activity</div>
+      <form method="post" action="{{ url_for('incident_comment', tid=t.id) }}" class="card-b stack">
+        {{ csrf() }}
+        <label for="body">Add a comment</label>
+        <textarea id="body" name="body" rows="3" maxlength="2000" placeholder="Write an update or ask a question"></textarea>
+        <button class="btn btn-primary" type="submit">Post comment</button>
+      </form>
+      <ul class="stream">
+        {% for c in comments %}
+          {% if c.body.startswith('[system] ') %}
+          <li class="act sys">
+            <span class="dot"></span>
+            <div><div class="act-body">{{ c.body[9:] }}</div><div class="act-meta">{{ c.full_name }} &middot; {{ fmt(c.created_at) }}</div></div>
+          </li>
+          {% else %}
+          <li class="act">
+            <span class="avatar sm">{{ c.full_name|initials }}</span>
+            <div>
+              <div class="act-meta"><strong>{{ c.full_name }}</strong>{% if c.role == 'agent' %} <span class="tag">Agent</span>{% endif %} &middot; {{ fmt(c.created_at) }}</div>
+              <div class="act-body">{{ c.body }}</div>
+            </div>
+          </li>
+          {% endif %}
+        {% endfor %}
+        <li class="act sys">
+          <span class="dot"></span>
+          <div><div class="act-body">Incident opened.</div><div class="act-meta">{{ t.requester or 'Unknown' }} &middot; {{ fmt(t.created_at) }}</div></div>
+        </li>
+      </ul>
+    </section>
+  </aside>
+</div>
+{% endblock %}

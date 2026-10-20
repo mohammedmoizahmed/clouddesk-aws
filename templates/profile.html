@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% from "_ui.html" import csrf %}
+{% block title %}Profile{% endblock %}
+{% block content %}
+<div class="page-h">
+  <div>
+    <h1>Profile</h1>
+    <p class="muted">Your account details</p>
+  </div>
+</div>
+
+<div class="grid-profile">
+  <section class="card">
+    <div class="card-h">Account</div>
+    <div class="card-b">
+      <div class="profile-head">
+        <span class="avatar lg">{{ g.user.full_name|initials }}</span>
+        <div><strong class="big">{{ g.user.full_name }}</strong><div><span class="tag">{{ 'Agent' if g.user.role == 'agent' else 'Requester' }}</span></div></div>
+      </div>
+      <dl class="fields">
+        <div><dt>Email</dt><dd>{{ g.user.email }}</dd></div>
+        <div><dt>Phone</dt><dd>{{ g.user.phone }}</dd></div>
+        <div><dt>Incidents raised</dt><dd>{{ total }}</dd></div>
+        <div><dt>Resolved or closed</dt><dd>{{ done }}</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-h">Change password</div>
+    <form method="post" action="{{ url_for('change_password') }}" class="card-b stack">
+      {{ csrf() }}
+      <div><label for="current">Current password</label><input id="current" name="current" type="password" autocomplete="current-password" required></div>
+      <div><label for="new">New password</label><input id="new" name="new" type="password" autocomplete="new-password" minlength="8" required></div>
+      <div><label for="confirm">Confirm new password</label><input id="confirm" name="confirm" type="password" autocomplete="new-password" minlength="8" required></div>
+      <button class="btn btn-primary" type="submit">Update password</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "_ui.html" import icon, csrf %}
+{% block title %}Create incident{% endblock %}
+{% block content %}
+<div class="page-h">
+  <div>
+    <h1>Create incident</h1>
+    <p class="muted">Tell us what is wrong and we will take it from there.</p>
+  </div>
+</div>
+
+<section class="card">
+  <form method="post" enctype="multipart/form-data" class="card-b">
+    {{ csrf() }}
+    <div class="form-grid">
+      <div>
+        <label for="caller">Caller</label>
+        <input id="caller" type="text" value="{{ g.user.full_name }}" readonly>
+      </div>
+      <div>
+        <label for="category">Category</label>
+        <select id="category" name="category">
+          {% for c in CATEGORIES %}<option {{ 'selected' if c == form.category }}>{{ c }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="priority">Priority</label>
+        <select id="priority" name="priority">
+          {% for p in PRIORITIES %}<option {{ 'selected' if p == form.priority }}>{{ p }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="span-2">
+        <label for="title">Short description <span class="req">*</span></label>
+        <input id="title" name="title" type="text" maxlength="255" value="{{ form.title }}" placeholder="For example: Outlook will not open" required autofocus>
+      </div>
+      <div class="span-2">
+        <label for="description">Description</label>
+        <textarea id="description" name="description" rows="6" placeholder="When did it start? What error do you see?">{{ form.description }}</textarea>
+      </div>
+      <div class="span-2">
+        <label for="screenshot">Attachment</label>
+        <input id="screenshot" name="screenshot" type="file" accept=".png,.jpg,.jpeg,.gif,.pdf,.txt">
+        <div class="hint">PNG, JPG, GIF, PDF or TXT, up to 5 MB. Other file types are rejected automatically.</div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" type="submit">Submit</button>
+      <a class="btn" href="{{ url_for('home') }}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "_ui.html" import icon, incident_table %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+{% set agent = g.user.role == 'agent' %}
+<div class="page-h">
+  <div>
+    <h1>{{ title }}</h1>
+    <p class="muted">{{ total }} incident{{ '' if total == 1 else 's' }}</p>
+  </div>
+  <a class="btn btn-primary" href="{{ url_for('incident_new') }}">{{ icon('plus') }} Create incident</a>
+</div>
+
+<section class="card">
+  <form class="filters" method="get" action="{{ url_for('incidents') }}">
+    <input type="hidden" name="scope" value="{{ scope }}">
+    <input type="search" name="q" value="{{ text }}" placeholder="Search number or description" aria-label="Search">
+    <select name="state" aria-label="State">
+      <option value="">All states</option>
+      {% for s in STATES %}<option {{ 'selected' if s == state }}>{{ s }}</option>{% endfor %}
+    </select>
+    <select name="priority" aria-label="Priority">
+      <option value="">All priorities</option>
+      {% for p in PRIORITIES %}<option {{ 'selected' if p == priority }}>{{ p }}</option>{% endfor %}
+    </select>
+    <button class="btn btn-primary" type="submit">Apply</button>
+    <a class="btn" href="{{ url_for('incidents', scope=scope) }}">Reset</a>
+  </form>
+
+  {% if rows %}
+    {{ incident_table(rows, agent, sortable=True, sort=sort, direction=direction) }}
+    <div class="pager">
+      <span class="muted">Showing {{ first }} to {{ last }} of {{ total }}</span>
+      <span class="pager-links">
+        {% if page > 1 %}<a class="btn" href="{{ qs(page=page - 1) }}">Previous</a>{% endif %}
+        <span class="muted">Page {{ page }} of {{ pages }}</span>
+        {% if page < pages %}<a class="btn" href="{{ qs(page=page + 1) }}">Next</a>{% endif %}
+      </span>
+    </div>
+  {% else %}
+    <div class="empty">
+      {{ icon('inbox') }}
+      <p>No incidents match your filters.</p>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

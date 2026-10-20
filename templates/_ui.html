@@ -1,0 +1,56 @@
+{% macro icon(name) %}<svg class="ic" aria-hidden="true"><use href="#i-{{ name }}"/></svg>{% endmacro %}
+
+{% macro state(value) %}<span class="badge st-{{ value|slug }}">{{ value }}</span>{% endmacro %}
+
+{% macro prio(value) %}<span class="badge pr-{{ value|slug }}">{{ value }}</span>{% endmacro %}
+
+{% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
+
+{% macro flashes() %}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="flash flash-{{ category }}" role="status">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+{% endmacro %}
+
+{% macro th(label, key, sort, direction) %}
+  <th><a class="sortlink" href="{{ qs(sort=key, dir=('asc' if (sort == key and direction == 'desc') else 'desc'), page=None) }}">{{ label }}{% if sort == key %}<span class="arrow">{{ '↑' if direction == 'asc' else '↓' }}</span>{% endif %}</a></th>
+{% endmacro %}
+
+{% macro incident_table(rows, agent, sortable=False, sort='', direction='', compact=False) %}
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr>
+        {% if sortable %}
+          {{ th('Number', 'number', sort, direction) }}
+          {{ th('Short description', 'short', sort, direction) }}
+          {% if not compact %}{{ th('Category', 'category', sort, direction) }}{% endif %}
+          {{ th('Priority', 'priority', sort, direction) }}
+          {{ th('State', 'state', sort, direction) }}
+        {% else %}
+          <th>Number</th><th>Short description</th>{% if not compact %}<th>Category</th>{% endif %}<th>Priority</th><th>State</th>
+        {% endif %}
+        {% if agent %}<th class="col-req">Requested by</th>{% endif %}
+        {% if not compact %}<th>Assigned to</th>{% endif %}
+        {% if sortable %}{{ th('Updated', 'updated', sort, direction) }}{% else %}<th>Updated</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td data-label="Number"><a class="num" href="{{ url_for('incident_view', tid=r.id) }}">{{ r.number }}</a></td>
+        <td data-label="Short description" class="cell-title"><a href="{{ url_for('incident_view', tid=r.id) }}">{{ r.title }}</a></td>
+        {% if not compact %}<td data-label="Category">{{ r.category }}</td>{% endif %}
+        <td data-label="Priority">{{ prio(r.priority) }}</td>
+        <td data-label="State">{{ state(r.status) }}</td>
+        {% if agent %}<td data-label="Requested by" class="col-req">{{ r.requester or '-' }}</td>{% endif %}
+        {% if not compact %}<td data-label="Assigned to">{{ r.assignee or 'Unassigned' }}</td>{% endif %}
+        <td data-label="Updated" class="nowrap">{{ fmt(r.updated_at, compact) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}

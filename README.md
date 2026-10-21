@@ -1,6 +1,6 @@
 # CloudDesk: a highly available IT helpdesk on AWS
 
-![tests](https://github.com/mohammedmoizahmed/clouddesk-aws/actions/workflows/tests.yml/badge.svg)
+[![tests](https://github.com/mohammedmoizahmed/clouddesk-aws/actions/workflows/tests.yml/badge.svg)](https://github.com/mohammedmoizahmed/clouddesk-aws/actions/workflows/tests.yml)
 
 CloudDesk is an IT helpdesk with a service-desk style interface: people create an account, raise incidents, attach screenshots and follow them to resolution, while support agents work the queue. It is built to put core AWS services together end to end: a private network, a load-balanced and auto-scaling web tier, a managed relational database, and an event-driven file-validation pipeline.
 

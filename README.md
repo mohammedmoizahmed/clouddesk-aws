@@ -57,7 +57,7 @@ Every new account is a requester. An administrator promotes agents with one SQL 
 
 Screenshots are uploaded to a private S3 bucket and checked by a Lambda function. The incident page shows the result of that check (accepted, rejected with the reason, or still being checked). Accepted images open in a pop-up viewer that closes with an X, a Back button, the Esc key or a click outside, so the file is never downloaded to the viewer's computer.
 
-![Image attachment open in the pop-up viewer](docs/images/attachment-viewer.png)
+![Image attachment open in the pop-up viewer](docs/images/viewer-preview.png)
 *An attachment opened in the pop-up viewer on desktop and on a phone.*
 
 ## Architecture

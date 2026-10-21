@@ -138,7 +138,6 @@ UPGRADES = [
     "ALTER TABLE tickets ADD COLUMN assignee_id INT NULL",
     "ALTER TABLE tickets ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP "
     "ON UPDATE CURRENT_TIMESTAMP",
-    "ALTER TABLE tickets ADD UNIQUE (ticket_number)",
 ]
 IGNORABLE = {1060, 1061}  # duplicate column name, duplicate key name
 
@@ -152,6 +151,15 @@ def init_db():
             for stmt in UPGRADES:
                 try:
                     cur.execute(stmt)
+                except pymysql.err.OperationalError as exc:
+                    if exc.args[0] not in IGNORABLE:
+                        raise
+            # Add the unique index only if there is none yet. (Adding it blindly on every start would
+            # create a new duplicate index each time, because MySQL does not complain about that.)
+            cur.execute("SHOW INDEX FROM tickets WHERE Column_name = 'ticket_number'")
+            if not cur.fetchall():
+                try:
+                    cur.execute("ALTER TABLE tickets ADD UNIQUE KEY uq_ticket_number (ticket_number)")
                 except pymysql.err.OperationalError as exc:
                     if exc.args[0] not in IGNORABLE:
                         raise

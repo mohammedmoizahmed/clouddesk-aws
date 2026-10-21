@@ -3,7 +3,8 @@
 *.env
 *.pem
 
-# Python and OS clutter
+# Python, test and OS clutter
 __pycache__/
 *.pyc
+.pytest_cache/
 .DS_Store

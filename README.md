@@ -67,12 +67,12 @@ The application is deliberately small. The focus of the project is the infrastru
 
 Screenshots are uploaded to a private S3 bucket and checked by a Lambda function. The incident page shows the result of that check (accepted, rejected with the reason, or still being checked). Accepted images open in a pop-up viewer that closes with an X, a Back button, the Esc key or a click outside, so the file is never downloaded to the viewer's computer.
 
-![Image attachment open in the pop-up viewer](docs/images/attachment-viewer.png)
+![Image attachment open in the pop-up viewer](docs/images/viewer-preview.png)
 *An attachment opened in the pop-up viewer on desktop and on a phone.*
 
 ## Architecture
 
-![CloudDesk architecture diagram](docs/images/architecture-v2.png)
+![CloudDesk architecture diagram](docs/images/architecture.png)
 *A visitor reaches the load balancer, which sends traffic to web servers in two zones. Tickets go to the database, screenshots go to S3 and are checked by Lambda, and an alarm adds a server when CPU is high.*
 
 In short: visitors reach an Application Load Balancer, which forwards to web servers in an Auto Scaling Group across two Availability Zones. The servers keep accounts, incidents and comments in RDS (private subnets), upload screenshots to S3, and read their settings from Parameter Store. Each upload triggers a Lambda function that validates the file and records the result in DynamoDB, which the web servers read to show that result. A CloudWatch alarm on average CPU lets the group add a third server under load.

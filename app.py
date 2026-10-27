@@ -76,6 +76,7 @@ def connect():
         cursorclass=pymysql.cursors.DictCursor,
         autocommit=True,
         connect_timeout=5,
+        init_command="SET time_zone = '+03:00'",
     )
 
 

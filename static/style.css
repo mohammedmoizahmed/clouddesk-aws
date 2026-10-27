@@ -262,9 +262,36 @@ input:focus, select:focus, textarea:focus { outline: 2px solid rgba(29, 111, 106
 .error-code { font-size: 64px; font-weight: 700; line-height: 1; color: var(--topbar); margin-bottom: 10px; }
 .auth-card .error-code { font-size: 48px; }
 
+/* administration */
+.btn-danger { color: #fff; background: #b42318; border-color: #b42318; }
+.btn-danger:hover { background: #912018; }
+.danger-zone { border-color: #f1b5b0; }
+.danger-zone .card-h { color: #912018; background: #fef3f2; border-radius: 8px 8px 0 0; }
+.narrow { max-width: 680px; }
+.checkbox-row { display: flex; align-items: flex-start; gap: 10px; }
+.checkbox-row input[type=checkbox] { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 2px; }
+.checkbox-row label { margin: 0; font-size: 14px; font-weight: 400; }
+.input-row { display: flex; gap: 10px; }
+.input-row input { flex: 1 1 auto; min-width: 0; }
+.mono { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; letter-spacing: .02em; }
+.inline-form { display: inline-block; margin-top: 4px; }
+.link-btn { padding: 0; font: inherit; font-size: 13px; color: #b42318; cursor: pointer; background: none; border: 0; }
+.link-btn:hover { text-decoration: underline; }
+.plain-list { margin: 0; padding-left: 20px; }
+.plain-list li { margin-bottom: 6px; }
+.prose-list p { margin: 0 0 12px; }
+.tag-administrator { color: #7a271a; background: #fee4e2; }
+.tag-agent { color: #175cd3; background: #d1e9ff; }
+.tag-requester { color: #344054; background: #eaecf0; }
+.table td.wrap { white-space: normal; overflow-wrap: anywhere; }
+.head-badges { flex-wrap: wrap; }
+
 /* ------------------------------------------------------------ tablets */
 @media (min-width: 761px) and (max-width: 1000px) {
   .col-req { display: none; }
+}
+@media (min-width: 761px) and (max-width: 1150px) {
+  .col-phone { display: none; }
 }
 @media (max-width: 1100px) {
   .detail, .grid-home, .grid-profile { grid-template-columns: minmax(0, 1fr); }
@@ -290,7 +317,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid rgba(29, 111, 106
   .table thead { display: none; }
   .table tr { margin: 12px; padding: 8px 14px; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); }
   .table tbody tr:hover { background: #fff; }
-  .table td { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 7px 0; text-align: right; border: 0; }
+  .table td { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 16px; padding: 7px 0; text-align: right; border: 0; }
   .table td::before { content: attr(data-label); flex: 0 0 38%; text-align: left; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
   .cell-title { min-width: 0; }
   .cell-title a { font-weight: 600; }

@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% from "_ui.html" import icon, csrf %}
+{% block title %}{{ 'Create user' if mode == 'new' else target.full_name }}{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{{ url_for('admin_users') }}">Users</a> <span>/</span> {{ 'New user' if mode == 'new' else target.full_name }}</div>
+<div class="page-h">
+  <div>
+    <h1>{{ 'Create user' if mode == 'new' else target.full_name }}</h1>
+    <p class="muted">{{ 'The person can sign in as soon as you save. Tell them the password you set.' if mode == 'new' else target.email }}</p>
+  </div>
+</div>
+
+<div class="{{ 'grid-profile' if mode == 'edit' else 'narrow' }}">
+  <section class="card">
+    <div class="card-h">Account</div>
+    <form method="post" class="card-b">
+      {{ csrf() }}
+      <div class="form-grid">
+        <div>
+          <label for="full_name">Full name</label>
+          <input id="full_name" name="full_name" type="text" value="{{ form.full_name }}" maxlength="120" required {{ 'autofocus' if mode == 'new' }}>
+        </div>
+        <div>
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" value="{{ form.email }}" maxlength="190" required>
+        </div>
+        <div>
+          <label for="phone">Phone number</label>
+          <input id="phone" name="phone" type="tel" inputmode="tel" value="{{ form.phone }}" placeholder="+966 5X XXX XXXX" maxlength="30" required>
+        </div>
+        <div>
+          <label for="role">Role</label>
+          <select id="role" name="role" {{ 'disabled' if is_self }}>
+            {% for r in ROLES %}<option value="{{ r }}" {{ 'selected' if r == form.role }}>{{ ROLE_LABELS[r] }}</option>{% endfor %}
+          </select>
+          {% if is_self %}<div class="hint">You cannot change your own role.</div>{% endif %}
+        </div>
+        {% if mode == 'new' %}
+        <div class="span-2">
+          <label for="password">Password</label>
+          <div class="input-row">
+            <input id="password" name="password" type="text" autocomplete="off" minlength="8" class="mono" required>
+            <button type="button" class="btn" data-generate="password">Generate</button>
+          </div>
+          <div class="hint">At least 8 characters. You will need to tell the person this password.</div>
+        </div>
+        <div class="span-2 checkbox-row">
+          <input id="must_change" name="must_change" type="checkbox" value="1" {{ 'checked' if form.must_change }}>
+          <label for="must_change">Ask the person to choose their own password the first time they sign in</label>
+        </div>
+        {% else %}
+        <div class="span-2 checkbox-row">
+          <input id="active" name="active" type="checkbox" value="1" {{ 'checked' if form.active }} {{ 'disabled' if is_self }}>
+          <label for="active">Account is active (an inactive account cannot sign in)</label>
+        </div>
+        {% endif %}
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" type="submit">{{ 'Create user' if mode == 'new' else 'Save changes' }}</button>
+        <a class="btn" href="{{ url_for('admin_users') }}">Cancel</a>
+      </div>
+    </form>
+  </section>
+
+  {% if mode == 'new' %}
+  <section class="card">
+    <div class="card-h">What each role can do</div>
+    <div class="card-b prose-list">
+      <p><strong>Requester:</strong> raises incidents and follows their own.</p>
+      <p><strong>Agent:</strong> sees every incident, comments, and changes state, priority and assignee.</p>
+      <p><strong>Administrator:</strong> everything an agent can do, plus creating and editing users, setting passwords, changing roles, editing incidents, and permanently deleting incidents and users.</p>
+    </div>
+  </section>
+  {% else %}
+  <div>
+    <section class="card">
+      <div class="card-h">Set a new password</div>
+      <form method="post" action="{{ url_for('admin_user_password', uid=target.id) }}" class="card-b stack">
+        {{ csrf() }}
+        <div>
+          <label for="new_password">New password</label>
+          <div class="input-row">
+            <input id="new_password" name="password" type="text" autocomplete="off" minlength="8" class="mono" required>
+            <button type="button" class="btn" data-generate="new_password">Generate</button>
+          </div>
+          <div class="hint">This signs the person out of all their devices.</div>
+        </div>
+        <div class="checkbox-row">
+          <input id="reset_must_change" name="must_change" type="checkbox" value="1" checked>
+          <label for="reset_must_change">Ask the person to choose their own password at next sign-in</label>
+        </div>
+        <button class="btn btn-primary" type="submit">Set password</button>
+      </form>
+    </section>
+
+    {% if not is_self %}
+    <section class="card danger-zone">
+      <div class="card-h">Delete this user</div>
+      <div class="card-b">
+        <p>Permanently removes the account. This cannot be undone.</p>
+        <a class="btn btn-danger" href="{{ url_for('admin_user_delete', uid=target.id) }}">{{ icon('trash') }} Delete user</a>
+      </div>
+    </section>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<script>
+  document.querySelectorAll('[data-generate]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var field = document.getElementById(button.getAttribute('data-generate'));
+      var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+      var values = new Uint32Array(14);
+      crypto.getRandomValues(values);
+      var text = '';
+      for (var i = 0; i < values.length; i++) { text += chars[values[i] % chars.length]; }
+      field.value = text;
+    });
+  });
+</script>
+{% endblock %}

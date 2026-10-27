@@ -13,7 +13,7 @@
 {% if g.user %}
 {% set ep = request.endpoint %}
 {% set sc = request.args.get('scope', 'mine') %}
-{% set agent = g.user.role == 'agent' %}
+{% set agent = staff %}
 <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Toggle navigation">
 
 <header class="topbar">
@@ -31,7 +31,7 @@
       {{ icon('chevron') }}
     </summary>
     <div class="menu">
-      <div class="menu-head"><strong>{{ g.user.full_name }}</strong><span>{{ g.user.email }}</span><span class="tag">{{ 'Agent' if agent else 'Requester' }}</span></div>
+      <div class="menu-head"><strong>{{ g.user.full_name }}</strong><span>{{ g.user.email }}</span><span class="tag tag-{{ g.user.role }}">{{ g.user.role|rolelabel }}</span></div>
       <a href="{{ url_for('profile') }}">{{ icon('user') }} Profile</a>
       <form method="post" action="{{ url_for('logout') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -50,6 +50,12 @@
   <div class="nav-title">Service desk</div>
   <a href="{{ url_for('incidents', scope='assigned') }}" class="{{ 'active' if ep == 'incidents' and sc == 'assigned' }}">{{ icon('usercheck') }} Assigned to me</a>
   <a href="{{ url_for('incidents', scope='all') }}" class="{{ 'active' if ep == 'incidents' and sc == 'all' }}">{{ icon('layers') }} All incidents</a>
+  {% endif %}
+  {% if admin %}
+  <div class="nav-title">Administration</div>
+  <a href="{{ url_for('admin_users') }}" class="{{ 'active' if ep in ('admin_users', 'admin_user_edit', 'admin_user_delete') }}">{{ icon('users') }} Users</a>
+  <a href="{{ url_for('admin_user_new') }}" class="{{ 'active' if ep == 'admin_user_new' }}">{{ icon('userplus') }} Create user</a>
+  <a href="{{ url_for('admin_audit') }}" class="{{ 'active' if ep == 'admin_audit' }}">{{ icon('shield') }} Audit log</a>
   {% endif %}
   <div class="nav-title">Account</div>
   <a href="{{ url_for('profile') }}" class="{{ 'active' if ep == 'profile' }}">{{ icon('user') }} Profile</a>

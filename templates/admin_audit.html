@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Audit log{% endblock %}
+{% block content %}
+<div class="page-h">
+  <div>
+    <h1>Audit log</h1>
+    <p class="muted">Every administrator action, newest first (the latest 200).</p>
+  </div>
+</div>
+<section class="card">
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Details</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td data-label="When" class="nowrap">{{ fmt(r.created_at) }}</td>
+          <td data-label="Who">{{ r.actor_name }}</td>
+          <td data-label="Action"><span class="tag">{{ r.action }}</span></td>
+          <td data-label="Details" class="wrap">{{ r.detail }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty"><p>Nothing has been recorded yet.</p></div>
+  {% endif %}
+</section>
+{% endblock %}

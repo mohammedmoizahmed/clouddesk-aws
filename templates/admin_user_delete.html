@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "_ui.html" import icon, csrf %}
+{% block title %}Delete {{ target.full_name }}{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{{ url_for('admin_users') }}">Users</a> <span>/</span> <a href="{{ url_for('admin_user_edit', uid=target.id) }}">{{ target.full_name }}</a> <span>/</span> Delete</div>
+<div class="page-h"><div><h1>Delete {{ target.full_name }}?</h1></div></div>
+
+<section class="card danger-zone narrow">
+  <div class="card-h">This is permanent</div>
+  <form method="post" class="card-b stack">
+    {{ csrf() }}
+    <p>The account for <strong>{{ target.email }}</strong> ({{ target.role|rolelabel }}) will be removed for good, and the person will no longer be able to sign in. This cannot be undone.</p>
+    <ul class="plain-list">
+      <li>Incidents assigned to this user become unassigned.</li>
+      <li>Comments they wrote stay on their incidents and are shown as "Deleted user".</li>
+      <li>This user has raised <strong>{{ owned }}</strong> incident{{ '' if owned == 1 else 's' }}.</li>
+    </ul>
+    {% if owned %}
+    <div class="checkbox-row">
+      <input id="delete_incidents" name="delete_incidents" type="checkbox" value="1">
+      <label for="delete_incidents">Also permanently delete the {{ owned }} incident{{ '' if owned == 1 else 's' }} this user raised, with their comments and attachments</label>
+    </div>
+    {% endif %}
+    <div class="actions">
+      <button class="btn btn-danger" type="submit">{{ icon('trash') }} Delete permanently</button>
+      <a class="btn" href="{{ url_for('admin_user_edit', uid=target.id) }}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

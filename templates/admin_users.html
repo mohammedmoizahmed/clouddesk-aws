@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% from "_ui.html" import icon %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<div class="page-h">
+  <div>
+    <h1>Users</h1>
+    <p class="muted">{{ users|length }} account{{ '' if users|length == 1 else 's' }}</p>
+  </div>
+  <a class="btn btn-primary" href="{{ url_for('admin_user_new') }}">{{ icon('userplus') }} Create user</a>
+</div>
+
+<section class="card">
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr><th>Name</th><th>Email</th><th class="col-phone">Phone</th><th>Role</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td data-label="Name" class="cell-title">
+            <a href="{{ url_for('admin_user_edit', uid=u.id) }}">{{ u.full_name }}</a>{% if u.id == g.user.id %} <span class="muted">(you)</span>{% endif %}
+          </td>
+          <td data-label="Email">{{ u.email }}</td>
+          <td data-label="Phone" class="nowrap col-phone">{{ u.phone }}</td>
+          <td data-label="Role"><span class="tag tag-{{ u.role }}">{{ u.role|rolelabel }}</span></td>
+          <td data-label="Status">
+            {% if u.active %}<span class="badge st-resolved">Active</span>{% else %}<span class="badge pr-critical">Disabled</span>{% endif %}
+            {% if u.must_change_password %}<span class="badge st-on-hold">Must change password</span>{% endif %}
+          </td>
+          <td><a class="btn" href="{{ url_for('admin_user_edit', uid=u.id) }}">{{ icon('edit') }} Edit</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

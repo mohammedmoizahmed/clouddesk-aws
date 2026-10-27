@@ -2,7 +2,7 @@
 {% from "_ui.html" import icon, incident_table %}
 {% block title %}Home{% endblock %}
 {% block content %}
-{% set agent = g.user.role == 'agent' %}
+{% set agent = staff %}
 <div class="page-h">
   <div>
     <h1>Welcome, {{ g.user.full_name.split(' ')[0] }}</h1>

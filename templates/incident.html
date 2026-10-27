@@ -2,14 +2,20 @@
 {% from "_ui.html" import icon, state, prio, csrf %}
 {% block title %}{{ t.number }}{% endblock %}
 {% block content %}
-{% set agent = g.user.role == 'agent' %}
+{% set agent = staff %}
 <div class="crumbs"><a href="{{ url_for('incidents', scope='all' if agent else 'mine') }}">Incidents</a> <span>/</span> {{ t.number }}</div>
 <div class="page-h">
   <div>
     <h1>{{ t.number }}</h1>
     <p class="lead">{{ t.title }}</p>
   </div>
-  <div class="head-badges">{{ state(t.status) }} {{ prio(t.priority) }}</div>
+  <div class="head-badges">
+    {{ state(t.status) }} {{ prio(t.priority) }}
+    {% if admin %}
+    <a class="btn" href="{{ url_for('incident_edit', tid=t.id) }}">{{ icon('edit') }} Edit</a>
+    <a class="btn btn-danger" href="{{ url_for('incident_delete', tid=t.id) }}">{{ icon('trash') }} Delete</a>
+    {% endif %}
+  </div>
 </div>
 
 <div class="detail">
@@ -114,14 +120,16 @@
           {% if c.body.startswith('[system] ') %}
           <li class="act sys">
             <span class="dot"></span>
-            <div><div class="act-body">{{ c.body[9:] }}</div><div class="act-meta">{{ c.full_name }} &middot; {{ fmt(c.created_at) }}</div></div>
+            <div><div class="act-body">{{ c.body[9:] }}</div><div class="act-meta">{{ c.full_name }} &middot; {{ fmt(c.created_at) }}</div>
+              {% if admin %}<form class="inline-form" method="post" action="{{ url_for('comment_delete', cid=c.id) }}" onsubmit="return confirm('Delete this note permanently?')">{{ csrf() }}<button class="link-btn" type="submit">Delete</button></form>{% endif %}</div>
           </li>
           {% else %}
           <li class="act">
             <span class="avatar sm">{{ c.full_name|initials }}</span>
             <div>
-              <div class="act-meta"><strong>{{ c.full_name }}</strong>{% if c.role == 'agent' %} <span class="tag">Agent</span>{% endif %} &middot; {{ fmt(c.created_at) }}</div>
+              <div class="act-meta"><strong>{{ c.full_name }}</strong>{% if c.role in ('agent', 'administrator') %} <span class="tag tag-{{ c.role }}">{{ c.role|rolelabel }}</span>{% endif %} &middot; {{ fmt(c.created_at) }}</div>
               <div class="act-body">{{ c.body }}</div>
+              {% if admin %}<form class="inline-form" method="post" action="{{ url_for('comment_delete', cid=c.id) }}" onsubmit="return confirm('Delete this comment permanently?')">{{ csrf() }}<button class="link-btn" type="submit">Delete</button></form>{% endif %}
             </div>
           </li>
           {% endif %}

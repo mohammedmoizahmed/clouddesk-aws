@@ -50,12 +50,19 @@ def pytest_configure(config):
 # ------------------------------------------------------------------ AWS fakes
 class FakeS3:
     def __init__(self):
-        self.objects, self.extra_args, self.presign_calls = {}, {}, []
+        self.objects, self.extra_args, self.presign_calls, self.deleted = {}, {}, [], []
         self.link_override = None
+        self.deny_delete = False
 
     def upload_fileobj(self, fileobj, bucket, key, ExtraArgs=None):
         self.objects[key] = fileobj.read()
         self.extra_args[key] = ExtraArgs
+
+    def delete_object(self, Bucket, Key):
+        if self.deny_delete:
+            raise ClientError({"Error": {"Code": "AccessDenied", "Message": "denied"}}, "DeleteObject")
+        self.objects.pop(Key, None)
+        self.deleted.append(Key)
 
     def generate_presigned_url(self, operation, Params, ExpiresIn):
         self.presign_calls.append((operation, Params, ExpiresIn))
@@ -66,10 +73,15 @@ class FakeTable:
     """Stands in for the DynamoDB table that the Lambda checker writes to."""
 
     def __init__(self):
-        self.items, self.denied = {}, False
+        self.items, self.denied, self.deny_delete = {}, False, False
 
     def set(self, key, status, reason=""):
         self.items[key] = {"file_key": key, "status": status, "reason": reason}
+
+    def delete_item(self, Key):
+        if self.deny_delete:
+            raise ClientError({"Error": {"Code": "AccessDeniedException", "Message": "denied"}}, "DeleteItem")
+        self.items.pop(Key["file_key"], None)
 
     def get_item(self, Key):
         if self.denied:
@@ -85,7 +97,7 @@ def clouddesk():
     conn = app.connect()
     try:
         with conn.cursor() as cur:  # start from a clean schema, whatever an earlier run left behind
-            cur.execute("DROP TABLE IF EXISTS comments, tickets, users")
+            cur.execute("DROP TABLE IF EXISTS audit_log, comments, tickets, users")
     finally:
         conn.close()
     app.init_db()
@@ -98,7 +110,7 @@ def clean_db(clouddesk):
     conn = clouddesk.connect()
     try:
         with conn.cursor() as cur:
-            for table in ("comments", "tickets", "users"):
+            for table in ("audit_log", "comments", "tickets", "users"):
                 cur.execute(f"DELETE FROM {table}")
                 cur.execute(f"ALTER TABLE {table} AUTO_INCREMENT = 1")
     finally:
@@ -127,8 +139,13 @@ class Session:
     def text(self, url):
         return self.client.get(url).get_data(as_text=True)
 
-    def token(self, url="/home"):
-        return self.site.token(self.client, url)
+    def token(self, url=None):
+        """A form token from any page this person can open (some pages redirect, e.g. before a forced password change)."""
+        for page in ([url] if url else ["/home", "/profile"]):
+            found = self.site.token(self.client, page)
+            if found:
+                return found
+        return None
 
     def post(self, url, data=None, **kwargs):
         data = dict(data or {})
@@ -149,28 +166,43 @@ class Site:
         match = re.search(r'name="csrf_token" value="([^"]+)"', html)
         return match.group(1) if match else None
 
-    def register(self, client, name, email, phone="+966 55 123 4567", password="password123", confirm=None):
-        return client.post("/register", data=dict(
-            csrf_token=self.token(client, "/register"), full_name=name, email=email, phone=phone,
-            password=password, confirm=password if confirm is None else confirm))
+    def login(self, client, email, password="password123"):
+        return client.post("/login", data=dict(csrf_token=self.token(client, "/login"), email=email,
+                                               password=password))
 
-    def sql(self, statement, args=()):
+    def sql(self, statement, args=None):
         conn = self.app.connect()
         try:
             with conn.cursor() as cur:
-                cur.execute(statement, args)
+                cur.execute(statement, args or None)
                 return list(cur.fetchall())
         finally:
             conn.close()
 
-    def make_user(self, name, email, role="requester", phone="+966 55 123 4567", password="password123"):
+    def make_user(self, name, email, role="requester", phone="+966 55 123 4567", password="password123",
+                  active=True, must_change=False, login=True):
+        """Create an account straight in the database and (by default) sign it in."""
+        from werkzeug.security import generate_password_hash
+        conn = self.app.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("INSERT INTO users (full_name, email, phone, password_hash, role, active, "
+                            "must_change_password) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                            (name, email.lower(), phone, generate_password_hash(password), role,
+                             1 if active else 0, 1 if must_change else 0))
+                user_id = cur.lastrowid
+        finally:
+            conn.close()
         client = self.app.app.test_client()
-        response = self.register(client, name, email, phone, password)
-        assert response.status_code == 302, "registration helper failed"
-        user_id = self.sql("SELECT id FROM users WHERE email=%s", (email.lower(),))[0]["id"]
-        if role != "requester":
-            self.sql("UPDATE users SET role=%s WHERE id=%s", (role, user_id))
+        if login:
+            assert self.login(client, email, password).status_code == 302, "sign-in helper failed"
         return Session(self, client, email, password, user_id, name)
+
+    def second_session(self, user):
+        """Another device for the same person."""
+        client = self.app.app.test_client()
+        assert self.login(client, user.email, user.password).status_code == 302
+        return Session(self, client, user.email, user.password, user.id, user.name)
 
     def add_ticket(self, title, requester_id=None, status="New", priority="Moderate", category="Software",
                    assignee_id=None, attachment=None):
@@ -206,6 +238,11 @@ def bob(site):
 @pytest.fixture
 def carol(site):
     return site.make_user("Carol Agent", "carol@example.com", role="agent")
+
+
+@pytest.fixture
+def admin(site):
+    return site.make_user("Ada Admin", "ada@example.com", role="administrator")
 
 
 def kpi(html, label):

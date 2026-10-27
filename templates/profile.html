@@ -15,7 +15,7 @@
     <div class="card-b">
       <div class="profile-head">
         <span class="avatar lg">{{ g.user.full_name|initials }}</span>
-        <div><strong class="big">{{ g.user.full_name }}</strong><div><span class="tag">{{ 'Agent' if g.user.role == 'agent' else 'Requester' }}</span></div></div>
+        <div><strong class="big">{{ g.user.full_name }}</strong><div><span class="tag tag-{{ g.user.role }}">{{ g.user.role|rolelabel }}</span></div></div>
       </div>
       <dl class="fields">
         <div><dt>Email</dt><dd>{{ g.user.email }}</dd></div>

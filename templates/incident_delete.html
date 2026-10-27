@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "_ui.html" import icon, csrf %}
+{% block title %}Delete {{ t.number }}{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{{ url_for('incidents', scope='all') }}">Incidents</a> <span>/</span> <a href="{{ url_for('incident_view', tid=t.id) }}">{{ t.number }}</a> <span>/</span> Delete</div>
+<div class="page-h"><div><h1>Delete {{ t.number }}?</h1><p class="lead">{{ t.title }}</p></div></div>
+
+<section class="card danger-zone narrow">
+  <div class="card-h">This is permanent</div>
+  <form method="post" class="card-b stack">
+    {{ csrf() }}
+    <p>The following will be removed for good. It cannot be recovered.</p>
+    <ul class="plain-list">
+      <li>The incident <strong>{{ t.number }}</strong> and all its details.</li>
+      <li><strong>{{ comment_count }}</strong> comment{{ '' if comment_count == 1 else 's' }} and activity entr{{ 'y' if comment_count == 1 else 'ies' }}.</li>
+      <li>{% if t.attachment %}The attachment <strong>{{ t.attachment.split('/')[-1] }}</strong>, from storage as well as from the incident.{% else %}No attachment.{% endif %}</li>
+    </ul>
+    <div class="actions">
+      <button class="btn btn-danger" type="submit">{{ icon('trash') }} Delete permanently</button>
+      <a class="btn" href="{{ url_for('incident_view', tid=t.id) }}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

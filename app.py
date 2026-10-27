@@ -16,7 +16,7 @@ from flask import (Flask, abort, flash, g, redirect, render_template, request,
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "3"
+APP_VERSION = "4"
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 BUCKET = os.environ.get("S3_BUCKET", "clouddesk-attachments-moiz-001")
 ATTACH_TABLE = os.environ.get("ATTACH_TABLE", "clouddesk-attachments")
@@ -25,6 +25,12 @@ STATES = ["New", "In Progress", "On Hold", "Resolved", "Closed"]
 PRIORITIES = ["Critical", "High", "Moderate", "Low"]
 CATEGORIES = ["Hardware", "Software", "Network", "Email", "Access", "Printer", "Other"]
 PER_PAGE = 15
+
+# Roles. Requesters see their own incidents, agents work all incidents, and administrators can also
+# manage users and permanently delete things.
+ROLES = ["requester", "agent", "administrator"]
+ROLE_LABELS = {"requester": "Requester", "agent": "Agent", "administrator": "Administrator"}
+STAFF = ("agent", "administrator")
 
 # File types the Lambda checker accepts. The type is set from the extension, never from what the
 # uploader claims, so files are shown inline as images/PDF/text instead of being downloaded.
@@ -106,6 +112,9 @@ SCHEMA = [
         phone VARCHAR(30) NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
         role VARCHAR(20) NOT NULL DEFAULT 'requester',
+        active TINYINT(1) NOT NULL DEFAULT 1,
+        must_change_password TINYINT(1) NOT NULL DEFAULT 0,
+        session_version INT NOT NULL DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""",
     """CREATE TABLE IF NOT EXISTS tickets (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -127,9 +136,17 @@ SCHEMA = [
         body TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX (ticket_id))""",
+    """CREATE TABLE IF NOT EXISTS audit_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        actor_id INT NULL,
+        actor_name VARCHAR(120) NOT NULL,
+        action VARCHAR(60) NOT NULL,
+        detail VARCHAR(500) NOT NULL DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (created_at))""",
 ]
 
-# Columns added in version 2. Applied only if a database from version 1 is missing them.
+# Columns added after version 1. Applied only if an older database is missing them.
 UPGRADES = [
     "ALTER TABLE tickets ADD COLUMN ticket_number VARCHAR(20) NULL",
     "ALTER TABLE tickets ADD COLUMN category VARCHAR(40) NOT NULL DEFAULT 'General'",
@@ -138,6 +155,9 @@ UPGRADES = [
     "ALTER TABLE tickets ADD COLUMN assignee_id INT NULL",
     "ALTER TABLE tickets ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP "
     "ON UPDATE CURRENT_TIMESTAMP",
+    "ALTER TABLE users ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1",
+    "ALTER TABLE users ADD COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN session_version INT NOT NULL DEFAULT 0",
 ]
 IGNORABLE = {1060, 1061}  # duplicate column name, duplicate key name
 
@@ -210,10 +230,15 @@ def initials(name):
 app.jinja_env.globals.update(csrf_token=csrf_token, fmt=fmt, qs=qs)
 
 
+@app.template_filter("rolelabel")
+def rolelabel(role):
+    return ROLE_LABELS.get(role, str(role).title())
+
+
 @app.context_processor
 def inject():
-    return dict(STATES=STATES, PRIORITIES=PRIORITIES, CATEGORIES=CATEGORIES,
-                APP_VERSION=APP_VERSION)
+    return dict(STATES=STATES, PRIORITIES=PRIORITIES, CATEGORIES=CATEGORIES, ROLES=ROLES,
+                ROLE_LABELS=ROLE_LABELS, APP_VERSION=APP_VERSION, staff=is_staff(), admin=is_admin())
 
 
 def safe_next(target):
@@ -225,8 +250,18 @@ def safe_next(target):
     return target
 
 
-def is_agent():
-    return bool(g.user) and g.user["role"] == "agent"
+def is_staff():
+    """Agents and administrators."""
+    return bool(g.get("user")) and g.user["role"] in STAFF
+
+
+def is_admin():
+    return bool(g.get("user")) and g.user["role"] == "administrator"
+
+
+def admin_required():
+    if not is_admin():
+        abort(403)
 
 
 def clean_filename(original):
@@ -265,7 +300,9 @@ def attachment_info(key):
 
 
 # ---------------------------------------------------------------- request hooks
-PUBLIC = {"login", "register", "health", "static"}
+PUBLIC = {"login", "health", "static"}
+# Pages a person may use while they are required to choose a new password.
+PASSWORD_CHANGE_OK = {"profile", "change_password", "logout"}
 
 
 @app.before_request
@@ -275,9 +312,15 @@ def guard():
         return
     uid = session.get("uid")
     if uid:
-        g.user = q("SELECT id, full_name, email, phone, role FROM users WHERE id=%s", (uid,), one=True)
-        if not g.user:
+        user = q("SELECT id, full_name, email, phone, role, active, must_change_password, session_version "
+                 "FROM users WHERE id=%s", (uid,), one=True)
+        if user and user["active"] and session.get("sv") == user["session_version"]:
+            g.user = user
+        else:
+            disabled = bool(user) and not user["active"]
             session.clear()
+            if disabled:
+                flash("Your account has been disabled. Contact your administrator.", "error")
     if request.method == "POST":
         sent = request.form.get("csrf_token", "").encode()
         expected = session.get("csrf", "").encode()
@@ -286,6 +329,9 @@ def guard():
     if request.endpoint not in PUBLIC and not g.user:
         target = request.full_path.rstrip("?") if request.method == "GET" else None
         return redirect(url_for("login", next=target) if target and target != "/" else url_for("login"))
+    if g.user and g.user["must_change_password"] and request.endpoint not in PASSWORD_CHANGE_OK:
+        flash("Please choose a new password before you continue.", "info")
+        return redirect(url_for("profile"))
 
 
 @app.after_request
@@ -310,50 +356,6 @@ def root():
     return redirect(url_for("home"))
 
 
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    if g.user:
-        return redirect(url_for("home"))
-    form = {"full_name": "", "email": "", "phone": ""}
-    if request.method == "POST":
-        full_name = " ".join(request.form.get("full_name", "").split())
-        email = request.form.get("email", "").strip().lower()
-        phone = request.form.get("phone", "").strip()
-        password = request.form.get("password", "")
-        confirm = request.form.get("confirm", "")
-        form = {"full_name": full_name, "email": email, "phone": phone}
-        errors = []
-        if not (3 <= len(full_name) <= 120) or " " not in full_name:
-            errors.append("Enter your full name, first and last name.")
-        if not EMAIL_RE.match(email) or len(email) > 190:
-            errors.append("Enter a valid email address.")
-        if not PHONE_RE.match(phone):
-            errors.append("Enter a valid phone number, for example +966 5X XXX XXXX.")
-        if len(password) < 8:
-            errors.append("The password must be at least 8 characters.")
-        if password != confirm:
-            errors.append("The two passwords do not match.")
-        if not errors and q("SELECT id FROM users WHERE email=%s", (email,), one=True):
-            errors.append("An account with this email already exists. Try signing in.")
-        if errors:
-            for message in errors:
-                flash(message, "error")
-        else:
-            try:
-                uid = x("INSERT INTO users (full_name, email, phone, password_hash) VALUES (%s,%s,%s,%s)",
-                        (full_name, email, phone, generate_password_hash(password)))
-            except pymysql.err.IntegrityError:
-                flash("An account with this email already exists. Try signing in.", "error")
-                return render_template("register.html", form=form)
-            session.clear()
-            session["uid"] = uid
-            session.permanent = True
-            csrf_token()
-            flash("Your account has been created. Welcome to CloudDesk.", "success")
-            return redirect(url_for("home"))
-    return render_template("register.html", form=form)
-
-
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if g.user:
@@ -362,20 +364,24 @@ def login():
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
-        user = q("SELECT id, password_hash FROM users WHERE email=%s", (email,), one=True)
+        user = q("SELECT id, password_hash, active, session_version FROM users WHERE email=%s", (email,), one=True)
         if user:
             ok = check_password_hash(user["password_hash"], password)
         else:
             check_password_hash(DUMMY_HASH, password)  # keep timing similar for unknown emails
             ok = False
-        if ok:
+        if ok and not user["active"]:
+            flash("This account is disabled. Contact your administrator.", "error")
+        elif ok:
             target = safe_next(request.form.get("next", ""))
             session.clear()
             session["uid"] = user["id"]
+            session["sv"] = user["session_version"]
             session.permanent = True
             csrf_token()
             return redirect(target or url_for("home"))
-        flash("Incorrect email or password.", "error")
+        else:
+            flash("Incorrect email or password.", "error")
     return render_template("login.html", next=nxt)
 
 
@@ -405,8 +411,12 @@ def change_password():
         flash("The new password must be at least 8 characters.", "error")
     elif new != confirm:
         flash("The two new passwords do not match.", "error")
+    elif new == current:
+        flash("Choose a password that is different from your current one.", "error")
     else:
-        x("UPDATE users SET password_hash=%s WHERE id=%s", (generate_password_hash(new), g.user["id"]))
+        x("UPDATE users SET password_hash=%s, must_change_password=0, session_version=session_version+1 "
+          "WHERE id=%s", (generate_password_hash(new), g.user["id"]))
+        session["sv"] = q("SELECT session_version FROM users WHERE id=%s", (g.user["id"],), one=True)["session_version"]
         flash("Your password has been changed.", "success")
     return redirect(url_for("profile"))
 
@@ -431,7 +441,7 @@ SORTS = {
 
 
 def scope_clause():
-    if is_agent():
+    if is_staff():
         return "1=1", []
     return "t.requester_id=%s", [g.user["id"]]
 
@@ -453,12 +463,12 @@ def home():
     recent = q(f"{SELECT_LIST} WHERE {where} ORDER BY t.updated_at DESC, t.id DESC LIMIT 8", args)
     return render_template("home.html", total=total, by_state=by_state, by_priority=by_priority,
                            top=max(by_priority.values()) or 1, recent=recent,
-                           default_scope="all" if is_agent() else "mine")
+                           default_scope="all" if is_staff() else "mine")
 
 
 @app.route("/incidents")
 def incidents():
-    agent = is_agent()
+    agent = is_staff()
     scope = request.args.get("scope", "mine")
     if scope not in ("mine", "assigned", "all") or (not agent and scope != "mine"):
         scope = "mine"
@@ -548,7 +558,7 @@ def get_incident(tid):
             "a.full_name AS assignee "
             "FROM tickets t LEFT JOIN users r ON r.id = t.requester_id "
             "LEFT JOIN users a ON a.id = t.assignee_id WHERE t.id=%s", (tid,), one=True)
-    if not row or (not is_agent() and row["requester_id"] != g.user["id"]):
+    if not row or (not is_staff() and row["requester_id"] != g.user["id"]):
         abort(404)
     return row
 
@@ -556,9 +566,11 @@ def get_incident(tid):
 @app.route("/incidents/<int:tid>")
 def incident_view(tid):
     row = get_incident(tid)
-    comments = q("SELECT c.id, c.body, c.created_at, u.full_name, u.role FROM comments c "
-                 "JOIN users u ON u.id = c.user_id WHERE c.ticket_id=%s ORDER BY c.id DESC", (tid,))
-    agents = q("SELECT id, full_name FROM users WHERE role='agent' ORDER BY full_name") if is_agent() else []
+    comments = q("SELECT c.id, c.body, c.created_at, COALESCE(u.full_name, 'Deleted user') AS full_name, u.role "
+                 "FROM comments c "
+                 "LEFT JOIN users u ON u.id = c.user_id WHERE c.ticket_id=%s ORDER BY c.id DESC", (tid,))
+    agents = q("SELECT id, full_name FROM users WHERE role IN ('agent','administrator') ORDER BY full_name") \
+        if is_staff() else []
     att = attachment_info(row["attachment"]) if row["attachment"] else None
     return render_template("incident.html", t=row, comments=comments, agents=agents, att=att)
 
@@ -579,7 +591,7 @@ def incident_comment(tid):
 
 @app.route("/incidents/<int:tid>/update", methods=["POST"])
 def incident_update(tid):
-    if not is_agent():
+    if not is_staff():
         abort(403)
     row = get_incident(tid)
     state = request.form.get("state", row["status"])
@@ -591,7 +603,8 @@ def incident_update(tid):
         priority = row["priority"]
     assignee_id, assignee_name = None, None
     if assignee.isdigit():
-        found = q("SELECT id, full_name FROM users WHERE id=%s AND role='agent'", (int(assignee),), one=True)
+        found = q("SELECT id, full_name FROM users WHERE id=%s AND role IN ('agent','administrator')",
+                      (int(assignee),), one=True)
         if found:
             assignee_id, assignee_name = found["id"], found["full_name"]
     notes = []
@@ -611,6 +624,280 @@ def incident_update(tid):
     else:
         flash("Nothing was changed.", "info")
     return redirect(url_for("incident_view", tid=tid))
+
+
+# ---------------------------------------------------------------- administration
+def audit(action, detail=""):
+    x("INSERT INTO audit_log (actor_id, actor_name, action, detail) VALUES (%s,%s,%s,%s)",
+      (g.user["id"], g.user["full_name"], action, detail[:500]))
+    log.info("AUDIT %s by %s: %s", action, g.user["email"], detail[:200])
+
+
+def check_user_fields(full_name, email, phone):
+    errors = []
+    if not (3 <= len(full_name) <= 120) or " " not in full_name:
+        errors.append("Enter the full name, first and last name.")
+    if not EMAIL_RE.match(email) or len(email) > 190:
+        errors.append("Enter a valid email address.")
+    if not PHONE_RE.match(phone):
+        errors.append("Enter a valid phone number, for example +966 5X XXX XXXX.")
+    return errors
+
+
+def load_user(uid):
+    row = q("SELECT id, full_name, email, phone, role, active, must_change_password, created_at "
+            "FROM users WHERE id=%s", (uid,), one=True)
+    if not row:
+        abort(404)
+    return row
+
+
+def purge_incident(ticket_id, attachment):
+    """Permanently remove an incident, its comments and its stored file.
+
+    Returns True if the attachment could not be removed from storage."""
+    x("DELETE FROM comments WHERE ticket_id=%s", (ticket_id,))
+    x("DELETE FROM tickets WHERE id=%s", (ticket_id,))
+    leftover = False
+    if attachment:
+        try:
+            s3.delete_object(Bucket=BUCKET, Key=attachment)
+        except (BotoCoreError, ClientError):
+            log.exception("Could not delete %s from storage", attachment)
+            leftover = True
+        try:
+            ddb.delete_item(Key={"file_key": attachment})
+        except (BotoCoreError, ClientError):
+            log.exception("Could not delete the check result for %s", attachment)
+            leftover = True
+    return leftover
+
+
+STORAGE_WARNING = (" Its attachment could not be fully removed from storage: the web server role needs "
+                   "permission to delete from S3 and DynamoDB.")
+
+
+@app.route("/admin/users")
+def admin_users():
+    admin_required()
+    users = q("SELECT id, full_name, email, phone, role, active, must_change_password, created_at "
+              "FROM users ORDER BY full_name")
+    return render_template("admin_users.html", users=users)
+
+
+@app.route("/admin/users/new", methods=["GET", "POST"])
+def admin_user_new():
+    admin_required()
+    form = {"full_name": "", "email": "", "phone": "", "role": "requester", "must_change": True}
+    if request.method == "POST":
+        full_name = " ".join(request.form.get("full_name", "").split())
+        email = request.form.get("email", "").strip().lower()
+        phone = request.form.get("phone", "").strip()
+        role = request.form.get("role", "")
+        password = request.form.get("password", "")
+        must_change = request.form.get("must_change") == "1"
+        form = {"full_name": full_name, "email": email, "phone": phone,
+                "role": role if role in ROLES else "requester", "must_change": must_change}
+        errors = check_user_fields(full_name, email, phone)
+        if role not in ROLES:
+            errors.append("Choose a role.")
+        if len(password) < 8:
+            errors.append("The password must be at least 8 characters.")
+        if not errors and q("SELECT id FROM users WHERE email=%s", (email,), one=True):
+            errors.append("A user with this email already exists.")
+        if not errors:
+            try:
+                x("INSERT INTO users (full_name, email, phone, password_hash, role, must_change_password) "
+                  "VALUES (%s,%s,%s,%s,%s,%s)",
+                  (full_name, email, phone, generate_password_hash(password), role, 1 if must_change else 0))
+            except pymysql.err.IntegrityError:
+                errors.append("A user with this email already exists.")
+        if errors:
+            for message in errors:
+                flash(message, "error")
+        else:
+            audit("user.create", f"{email} as {role}")
+            flash(f"User {full_name} has been created.", "success")
+            return redirect(url_for("admin_users"))
+    return render_template("admin_user_form.html", mode="new", form=form, target=None, is_self=False)
+
+
+@app.route("/admin/users/<int:uid>", methods=["GET", "POST"])
+def admin_user_edit(uid):
+    admin_required()
+    target = load_user(uid)
+    is_self = target["id"] == g.user["id"]
+    form = {"full_name": target["full_name"], "email": target["email"], "phone": target["phone"],
+            "role": target["role"], "active": bool(target["active"])}
+    if request.method == "POST":
+        full_name = " ".join(request.form.get("full_name", "").split())
+        email = request.form.get("email", "").strip().lower()
+        phone = request.form.get("phone", "").strip()
+        role = request.form.get("role", target["role"])
+        active = request.form.get("active") == "1"
+        if is_self:  # you cannot demote or lock out your own account
+            role, active = target["role"], True
+        form = {"full_name": full_name, "email": email, "phone": phone, "role": role, "active": active}
+        errors = check_user_fields(full_name, email, phone)
+        if role not in ROLES:
+            errors.append("Choose a role.")
+        if not errors and q("SELECT id FROM users WHERE email=%s AND id<>%s", (email, uid), one=True):
+            errors.append("Another user already has this email.")
+        if not errors:
+            try:
+                x("UPDATE users SET full_name=%s, email=%s, phone=%s, role=%s, active=%s WHERE id=%s",
+                  (full_name, email, phone, role, 1 if active else 0, uid))
+            except pymysql.err.IntegrityError:
+                errors.append("Another user already has this email.")
+        if errors:
+            for message in errors:
+                flash(message, "error")
+        else:
+            changes = []
+            for label, old, new in (("name", target["full_name"], full_name), ("email", target["email"], email),
+                                    ("phone", target["phone"], phone), ("role", target["role"], role),
+                                    ("active", bool(target["active"]), active)):
+                if old != new:
+                    changes.append(f"{label}: {old} -> {new}" if label in ("role", "active") else label)
+            if changes:
+                audit("user.edit", f"{target['email']}: " + "; ".join(changes))
+            flash("User updated." if changes else "Nothing was changed.", "success" if changes else "info")
+            return redirect(url_for("admin_user_edit", uid=uid))
+    return render_template("admin_user_form.html", mode="edit", form=form, target=target, is_self=is_self)
+
+
+@app.route("/admin/users/<int:uid>/password", methods=["POST"])
+def admin_user_password(uid):
+    admin_required()
+    target = load_user(uid)
+    password = request.form.get("password", "")
+    must_change = request.form.get("must_change") == "1"
+    if len(password) < 8:
+        flash("The password must be at least 8 characters.", "error")
+        return redirect(url_for("admin_user_edit", uid=uid))
+    x("UPDATE users SET password_hash=%s, must_change_password=%s, session_version=session_version+1 "
+      "WHERE id=%s", (generate_password_hash(password), 1 if must_change else 0, uid))
+    if uid == g.user["id"]:  # keep the administrator's own session alive
+        session["sv"] = q("SELECT session_version FROM users WHERE id=%s", (uid,), one=True)["session_version"]
+    audit("user.password_reset", target["email"])
+    flash(f"The password for {target['full_name']} has been set. Their other sessions were signed out.", "success")
+    return redirect(url_for("admin_user_edit", uid=uid))
+
+
+@app.route("/admin/users/<int:uid>/delete", methods=["GET", "POST"])
+def admin_user_delete(uid):
+    admin_required()
+    target = load_user(uid)
+    if target["id"] == g.user["id"]:
+        flash("You cannot delete your own account.", "error")
+        return redirect(url_for("admin_user_edit", uid=uid))
+    owned = q("SELECT id, attachment FROM tickets WHERE requester_id=%s", (uid,))
+    if request.method == "POST":
+        leftovers = 0
+        removed = 0
+        if request.form.get("delete_incidents") == "1":
+            for ticket in owned:
+                leftovers += 1 if purge_incident(ticket["id"], ticket["attachment"]) else 0
+                removed += 1
+        x("UPDATE tickets SET assignee_id=NULL WHERE assignee_id=%s", (uid,))
+        x("DELETE FROM users WHERE id=%s", (uid,))
+        audit("user.delete", f"{target['email']} ({target['role']}); incidents deleted: {removed}")
+        flash(f"User {target['full_name']} has been permanently deleted."
+              + (f" {removed} of their incidents were deleted too." if removed else "")
+              + (STORAGE_WARNING if leftovers else ""), "error" if leftovers else "success")
+        return redirect(url_for("admin_users"))
+    return render_template("admin_user_delete.html", target=target, owned=len(owned))
+
+
+@app.route("/admin/audit")
+def admin_audit():
+    admin_required()
+    rows = q("SELECT actor_name, action, detail, created_at FROM audit_log ORDER BY id DESC LIMIT 200")
+    return render_template("admin_audit.html", rows=rows)
+
+
+@app.route("/incidents/<int:tid>/edit", methods=["GET", "POST"])
+def incident_edit(tid):
+    admin_required()
+    t = get_incident(tid)
+    users = q("SELECT id, full_name FROM users ORDER BY full_name")
+    people = {u["id"] for u in users}
+    staff_rows = q("SELECT id, full_name FROM users WHERE role IN ('agent','administrator') ORDER BY full_name")
+    staff_ids = {u["id"] for u in staff_rows}
+    categories = CATEGORIES if t["category"] in CATEGORIES else CATEGORIES + [t["category"]]
+    form = {"title": t["title"], "description": t["description"] or "", "category": t["category"],
+            "priority": t["priority"], "status": t["status"],
+            "requester": t["requester_id"] or "", "assignee": t["assignee_id"] or ""}
+    if request.method == "POST":
+        title = " ".join(request.form.get("title", "").split())[:255]
+        description = request.form.get("description", "").strip()[:5000]
+        category = request.form.get("category", "")
+        priority = request.form.get("priority", "")
+        status = request.form.get("status", "")
+        requester, assignee = request.form.get("requester", ""), request.form.get("assignee", "")
+        form = {"title": title, "description": description, "category": category, "priority": priority,
+                "status": status, "requester": requester, "assignee": assignee}
+        errors = []
+        if not title:
+            errors.append("Enter a short description.")
+        if category not in categories:
+            errors.append("Choose a category.")
+        if priority not in PRIORITIES:
+            errors.append("Choose a priority.")
+        if status not in STATES:
+            errors.append("Choose a state.")
+        requester_id = int(requester) if requester.isdigit() else None
+        assignee_id = int(assignee) if assignee.isdigit() else None
+        if requester and requester_id not in people:
+            errors.append("Choose a caller from the list.")
+        if assignee and assignee_id not in staff_ids:
+            errors.append("Choose an assignee from the list of agents and administrators.")
+        if errors:
+            for message in errors:
+                flash(message, "error")
+        else:
+            changes = [label for label, old, new in (
+                ("short description", t["title"], title), ("description", t["description"] or "", description),
+                ("category", t["category"], category), ("priority", t["priority"], priority),
+                ("state", t["status"], status), ("caller", t["requester_id"], requester_id),
+                ("assignee", t["assignee_id"], assignee_id)) if old != new]
+            x("UPDATE tickets SET title=%s, description=%s, category=%s, priority=%s, status=%s, "
+              "requester_id=%s, assignee_id=%s WHERE id=%s",
+              (title, description, category, priority, status, requester_id, assignee_id, tid))
+            if changes:
+                x("INSERT INTO comments (ticket_id, user_id, body) VALUES (%s,%s,%s)",
+                  (tid, g.user["id"], "[system] Edited by an administrator: " + ", ".join(changes) + "."))
+                audit("incident.edit", f"{t['number']}: " + ", ".join(changes))
+            flash("Incident updated." if changes else "Nothing was changed.", "success" if changes else "info")
+            return redirect(url_for("incident_view", tid=tid))
+    return render_template("incident_edit.html", t=t, form=form, users=users, staff_rows=staff_rows,
+                           categories=categories)
+
+
+@app.route("/incidents/<int:tid>/delete", methods=["GET", "POST"])
+def incident_delete(tid):
+    admin_required()
+    t = get_incident(tid)
+    comment_count = q("SELECT COUNT(*) AS n FROM comments WHERE ticket_id=%s", (tid,), one=True)["n"]
+    if request.method == "POST":
+        leftover = purge_incident(tid, t["attachment"])
+        audit("incident.delete", f"{t['number']}: {t['title'][:120]}")
+        flash(f"Incident {t['number']} has been permanently deleted." + (STORAGE_WARNING if leftover else ""),
+              "error" if leftover else "success")
+        return redirect(url_for("incidents", scope="all"))
+    return render_template("incident_delete.html", t=t, comment_count=comment_count)
+
+
+@app.route("/comments/<int:cid>/delete", methods=["POST"])
+def comment_delete(cid):
+    admin_required()
+    row = q("SELECT id, ticket_id FROM comments WHERE id=%s", (cid,), one=True)
+    if not row:
+        abort(404)
+    x("DELETE FROM comments WHERE id=%s", (cid,))
+    audit("comment.delete", f"comment {cid} on incident {row['ticket_id']}")
+    flash("Comment deleted.", "success")
+    return redirect(url_for("incident_view", tid=row["ticket_id"]))
 
 
 # ---------------------------------------------------------------- errors

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% from "_ui.html" import csrf %}
+{% block title %}Edit {{ t.number }}{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{{ url_for('incidents', scope='all') }}">Incidents</a> <span>/</span> <a href="{{ url_for('incident_view', tid=t.id) }}">{{ t.number }}</a> <span>/</span> Edit</div>
+<div class="page-h">
+  <div>
+    <h1>Edit {{ t.number }}</h1>
+    <p class="muted">Administrator edit. Every change is recorded in the activity stream and the audit log.</p>
+  </div>
+</div>
+
+<section class="card">
+  <form method="post" class="card-b">
+    {{ csrf() }}
+    <div class="form-grid">
+      <div class="span-2">
+        <label for="title">Short description</label>
+        <input id="title" name="title" type="text" maxlength="255" value="{{ form.title }}" required>
+      </div>
+      <div class="span-2">
+        <label for="description">Description</label>
+        <textarea id="description" name="description" rows="6">{{ form.description }}</textarea>
+      </div>
+      <div>
+        <label for="category">Category</label>
+        <select id="category" name="category">{% for c in categories %}<option {{ 'selected' if c == form.category }}>{{ c }}</option>{% endfor %}</select>
+      </div>
+      <div>
+        <label for="priority">Priority</label>
+        <select id="priority" name="priority">{% for p in PRIORITIES %}<option {{ 'selected' if p == form.priority }}>{{ p }}</option>{% endfor %}</select>
+      </div>
+      <div>
+        <label for="status">State</label>
+        <select id="status" name="status">{% for s in STATES %}<option {{ 'selected' if s == form.status }}>{{ s }}</option>{% endfor %}</select>
+      </div>
+      <div>
+        <label for="requester">Caller</label>
+        <select id="requester" name="requester">
+          <option value="">No caller</option>
+          {% for u in users %}<option value="{{ u.id }}" {{ 'selected' if u.id|string == form.requester|string }}>{{ u.full_name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="assignee">Assigned to</label>
+        <select id="assignee" name="assignee">
+          <option value="">Unassigned</option>
+          {% for u in staff_rows %}<option value="{{ u.id }}" {{ 'selected' if u.id|string == form.assignee|string }}>{{ u.full_name }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" type="submit">Save changes</button>
+      <a class="btn" href="{{ url_for('incident_view', tid=t.id) }}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}
